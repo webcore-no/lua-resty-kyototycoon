@@ -128,37 +128,13 @@ local function _do_req(http, cmd, args)
         return nil, "bad argument, expecting table or string but got "
                 .. type(args)
     end
-
-    return http:post(uri, body)
-end
-
-local function _itr_do_req(http, cmd, args)
-
-    -- check args
-    local ok, err = _check_args(cmd, args)
+    ok, err = http:post(uri, body)
     if not ok then
         return nil, err
     end
-    -- get uri and header
-    local uri = "/rpc/" .. cmd
-    -- get body
-    local body, err
-    if type(args) == "table" then
-        body, err = tsv.encode(args, ngx.encode_base64)
-        if not body then
-            return nil, err
-        end
-    elseif type(args) == "string" then
-        body = args
-    elseif type(args) == "nil" then
-        body = ""
-    else
-        return nil, "bad argument, expecting table or string but got "
-                .. type(args)
-    end
-
-    return http:itr_post(uri, body)
+    return http
 end
+
 
 local function _strip_underscored_result(res)
     local num = res.num
@@ -192,6 +168,11 @@ end
 
 local function _do_command(self, cmd, args)
     local res, err = _do_req(self.http, cmd, args)
+    if not res then
+        return nil, err
+    end
+
+    res, err = res:read_reply()
     if not res then
         return nil, err
     end
@@ -265,16 +246,23 @@ local function _bulk_cmd(self, cmd, records, args)
 end
 
 local function _iterate_cmd(self, cmd, args)
-    local res, err = _itr_do_req(self.http, cmd, args)
+    local res, err = _do_req(self.http, cmd, args)
     if not res then
         return nil, err
     end
+    local sock = res.sock
+    res, err = res:read_header()
+    if not res then
+        return nil, err
+    end
+    local cjson = require("cjson.safe")
 
     local is_tsv, encoding = _get_encoding(res.header.content_type)
     if not is_tsv then
-        return res.itr
+        return nil
     end
-    local decode_fun
+
+    local decode_fun = function(a) return a end
 
     if encoding == "B" then
         decode_fun = ngx.decode_base64
@@ -286,7 +274,7 @@ local function _iterate_cmd(self, cmd, args)
 
     local data_left = res.header.content_length
     local line
-    local sock = res.sock
+
     return function()
         if data_left <= 0 then
             return nil, nil
@@ -294,10 +282,15 @@ local function _iterate_cmd(self, cmd, args)
 
         line, err = sock:receive('*l')
         if not line then
+            ngx.log(ngx.ERR, err)
             return nil, nil
         end
         -- Remove line + \n
         data_left = data_left - #line - 1
+
+        if string.byte(line, 1) ~= string.byte('_') then
+            return nil, nil
+        end
 
         local split = string.find(line, '\t')
 

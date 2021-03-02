@@ -27,7 +27,7 @@ function _M.new(self, args)
     return setmetatable({ sock = sock }, mt)
 end
 
-function _M.connect(self, args)
+function _M:connect(args)
     local sock = self.sock
     if not sock then
         return nil, "not initialized"
@@ -42,7 +42,7 @@ function _M.connect(self, args)
     end
 end
 
-function _M.set_timeout(self, ...)
+function _M:set_timeout(...)
     local sock = self.sock
     if not sock then
         return nil, "not initialized"
@@ -51,7 +51,7 @@ function _M.set_timeout(self, ...)
     return sock:settimeout(...)
 end
 
-function _M.set_keepalive(self, ...)
+function _M:set_keepalive(...)
     local sock = self.sock
     if not sock then
         return nil, "not initialized"
@@ -60,158 +60,22 @@ function _M.set_keepalive(self, ...)
     return sock:setkeepalive(...)
 end
 
-function _M.read_reply(self)
-    local sock = self.sock
-    if not sock then
-        return nil, "not initialized"
+function _M:read_reply()
+    local res, err
+    res, err = self:read_header()
+    if not res then
+        return nil, err
     end
-
-    sock = self.sock
-
-    local reader = sock:receiveuntil("\r\n\r\n")
-    local header, err = reader()
-
-    if not header then
-        return nil, "receive header failed: " .. err
-    end
-
-    local header_table = {}
-
-    local status = match(header, "HTTP/1%.%d (%d+)")
-    if not status then
-        return nil, "illegal response, no \"HTTP status\": " .. tostring(header)
-    end
-    header_table.status = tonumber(status)
-
-    local content_length = match(header, "Content%-Length: (%d+)")
-    if not content_length then
-        return nil, "illegal response, no \"Content-Length\" header: " ..
-                tostring(header)
-    end
-    header_table.content_length = tonumber(content_length)
-
-    local content_type = match(header, "Content%-Type: (.*)")
-    if content_type then
-        header_table.content_type = content_type
-    end
-
-
-    local body, err = sock:receive(content_length)
-    if not body then
+    res.body, err = self.sock:receive(res.header.content_length)
+    if not res.body then
         return nil, "receive http body failed: " .. err
     end
 
-    return { header = header_table, raw_header = header, body = body }
+    return res
 end
 
-function _M.post(self, ...)
-    local args = {...}
-    local uri = args[1]
-    local body = args[2]
-
+function _M:read_header()
     local sock = self.sock
-    if not sock then
-        return nil, "not initialized"
-    end
-
-    sock = self.sock
-
-    if type(uri) ~= "string" or #uri == 0 then
-        return nil, "bad uri argument, expect \"string\" but got: "
-                .. type(uri)
-    end
-
-    if type(body) ~= "string" then
-        return nil, "bad body argument, expect \"string\" but got: "
-                .. type(body)
-    end
-
-    local req = format("POST %s HTTP/1.0\r\n"
-            .. "Host: %s:%d\r\n"
-            .. "Content-Length: %d\r\n"
-            .. "Content-Type: text/tab-separated-values; colenc=B\r\n"
-            .. "Connection: Keep-Alive\r\n\r\n"
-            .. "%s", uri, self.host, self.port, #body, body)
-
-    local bytes, err = sock:send(req)
-    if not bytes then
-        return nil, "sock:send failed: " .. err
-    end
-
-    return _M.read_reply(self)
-end
-
-function _M.post(self, ...)
-    local args = {...}
-    local uri = args[1]
-    local body = args[2]
-
-    local sock = self.sock
-    if not sock then
-        return nil, "not initialized"
-    end
-
-    sock = self.sock
-
-    if type(uri) ~= "string" or #uri == 0 then
-        return nil, "bad uri argument, expect \"string\" but got: "
-                .. type(uri)
-    end
-
-    if type(body) ~= "string" then
-        return nil, "bad body argument, expect \"string\" but got: "
-                .. type(body)
-    end
-
-    local req = format("POST %s HTTP/1.0\r\n"
-            .. "Host: %s:%d\r\n"
-            .. "Content-Length: %d\r\n"
-            .. "Content-Type: text/tab-separated-values; colenc=B\r\n"
-            .. "Connection: Keep-Alive\r\n\r\n"
-            .. "%s", uri, self.host, self.port, #body, body)
-
-    local bytes, err = sock:send(req)
-    if not bytes then
-        return nil, "sock:send failed: " .. err
-    end
-
-    return _M.read_reply(self)
-end
-
-function _M.itr_post(self, ...)
-    local args = {...}
-    local uri = args[1]
-    local body = args[2]
-
-    local sock = self.sock
-    if not sock then
-        return nil, "not initialized"
-    end
-
-    sock = self.sock
-
-    if type(uri) ~= "string" or #uri == 0 then
-        return nil, "bad uri argument, expect \"string\" but got: "
-                .. type(uri)
-    end
-
-    if type(body) ~= "string" then
-        return nil, "bad body argument, expect \"string\" but got: "
-                .. type(body)
-    end
-
-    local req = format("POST %s HTTP/1.0\r\n"
-            .. "Host: %s:%d\r\n"
-            .. "Content-Length: %d\r\n"
-            .. "Content-Type: text/tab-separated-values; colenc=B\r\n"
-            .. "Connection: Keep-Alive\r\n\r\n"
-            .. "%s", uri, self.host, self.port, #body, body)
-
-    local bytes, err = sock:send(req)
-    if not bytes then
-        return nil, "sock:send failed: " .. err
-    end
-
     if not sock then
         return nil, "not initialized"
     end
@@ -244,7 +108,42 @@ function _M.itr_post(self, ...)
     if content_type then
         header_table.content_type = content_type
     end
-    return { header = header_table, raw_header = header, sock = sock}
+
+    return { header = header_table, raw_header = header}
+end
+
+function _M:post(uri, body)
+
+    local sock = self.sock
+    if not sock then
+        return nil, "not initialized"
+    end
+
+    sock = self.sock
+
+    if type(uri) ~= "string" or #uri == 0 then
+        return nil, "bad uri argument, expect \"string\" but got: "
+                .. type(uri)
+    end
+
+    if type(body) ~= "string" then
+        return nil, "bad body argument, expect \"string\" but got: "
+                .. type(body)
+    end
+
+    local req = format("POST %s HTTP/1.0\r\n"
+            .. "Host: %s:%d\r\n"
+            .. "Content-Length: %d\r\n"
+            .. "Content-Type: text/tab-separated-values; colenc=B\r\n"
+            .. "Connection: Keep-Alive\r\n\r\n"
+            .. "%s", uri, self.host, self.port, #body, body)
+
+    local bytes, err = sock:send(req)
+    if not bytes then
+        return nil, "sock:send failed: " .. err
+    end
+
+    return true
 end
 
 function _M.close(self)

@@ -58,6 +58,11 @@ __DATA__
                 return
             end
 
+            local res, err = http:read_reply()
+            if not res then
+                ngx.log(ngx.ERR, "failed to send post request to /test: ", err)
+                return
+            end
             ngx.say(res.body)
         ';
     }
@@ -98,6 +103,11 @@ Thanks for your cookies
             end
 
             local res, err = http:post("/test", "cookies")
+            if not res then
+                ngx.log(ngx.ERR, "failed to send post request to /test: ", err)
+                return
+            end
+            local res, err = http:read_reply()
             if not res then
                 ngx.log(ngx.ERR, "failed to send post request to /test: ", err)
                 return

@@ -711,12 +711,12 @@ kyoto: tycoon
             ngx.say("set ok")
 
             res, err = kt:match_prefix({ prefix = "abc", max = 10 })
-            if err then
+            if not res then
                 ngx.say("failed to get kyoto: ", err)
                 return
             end
 
-            for k, v in pairs(res) do
+            for k, v in res do
                 ngx.say(k, ": ", v)
             end
             kt:close()
@@ -782,7 +782,7 @@ abcdefg: 1
                 return
             end
 
-            for k, v in pairs(res) do
+            for k, v in res do
                 ngx.say(k, ": ", v)
             end
             kt:close()
@@ -847,12 +847,12 @@ abcdefg: 1
                     range = 2,
                     max = 10,
             })
-            if err then
+            if not res then
                 ngx.say("failed to get kyoto: ", err)
                 return
             end
 
-            for k, v in pairs(res) do
+            for k, v in res do
                 ngx.say(k, ": ", v)
             end
             kt:close()
