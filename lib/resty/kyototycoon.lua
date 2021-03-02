@@ -33,7 +33,7 @@ local commands = {
     "set",      "add",          "replace",      "append",       "increment",
     "increment_double",         "cas",          "remove",       "get",
     "check",    "seize",      --"set_bulk",     "remove_bulk",  "get_bulk",
-    "vacuum",   "match_prefix",                 "match_regex",  "match_similar",
+    "vacuum",   --"match_prefix",                 "match_regex",  "match_similar",
     "cur_jump", "cur_jump_back",                "cur_step",     "cur_step_back",
     "cur_set_value",            "cur_remove",   "cur_get_key",  "cur_get_value",
     "cur_get",  "cur_seize",    "cur_delete",
@@ -130,6 +130,34 @@ local function _do_req(http, cmd, args)
     end
 
     return http:post(uri, body)
+end
+
+local function _itr_do_req(http, cmd, args)
+
+    -- check args
+    local ok, err = _check_args(cmd, args)
+    if not ok then
+        return nil, err
+    end
+    -- get uri and header
+    local uri = "/rpc/" .. cmd
+    -- get body
+    local body, err
+    if type(args) == "table" then
+        body, err = tsv.encode(args, ngx.encode_base64)
+        if not body then
+            return nil, err
+        end
+    elseif type(args) == "string" then
+        body = args
+    elseif type(args) == "nil" then
+        body = ""
+    else
+        return nil, "bad argument, expecting table or string but got "
+                .. type(args)
+    end
+
+    return http:itr_post(uri, body)
 end
 
 local function _strip_underscored_result(res)
@@ -236,6 +264,47 @@ local function _bulk_cmd(self, cmd, records, args)
     return _strip_underscored_result(res)
 end
 
+local function _iterate_cmd(self, cmd, args)
+    local res, err = _itr_do_req(self.http, cmd, args)
+    if not res then
+        return nil, err
+    end
+
+    local is_tsv, encoding = _get_encoding(res.header.content_type)
+    if not is_tsv then
+        return res.itr
+    end
+    local decode_fun
+
+    if encoding == "B" then
+        decode_fun = ngx.decode_base64
+    elseif encoding == "Q" then
+        decode_fun = _decode_quoted_printable
+    elseif encoding == "U" then
+        decode_fun = ngx.unescape_uri
+    end
+
+    local data_left = res.header.content_length
+    local line
+    local sock = res.sock
+    return function()
+        if data_left <= 0 then
+            return nil, nil
+        end
+
+        line, err = sock:receive('*l')
+        if not line then
+            return nil, nil
+        end
+        -- Remove line + \n
+        data_left = data_left - #line - 1
+
+        local split = string.find(line, '\t')
+
+        return decode_fun(string.sub(line, 2, split-1)),  decode_fun(string.sub(line, split+1))
+    end
+end
+
 
 function _M.new(self)
     local http, err = httpmod:new()
@@ -290,4 +359,15 @@ function _M.remove_bulk(self, keys, args)
     return _bulk_cmd(self, "remove_bulk", keys, args)
 end
 
+function _M.match_prefix(self, args)
+    return _iterate_cmd(self, "match_prefix", args)
+end
+
+function _M.match_regex(self, args)
+    return _iterate_cmd(self, "match_regex", args)
+end
+
+function _M.match_similar(self, args)
+    return _iterate_cmd(self, "match_similar", args)
+end
 return _M
