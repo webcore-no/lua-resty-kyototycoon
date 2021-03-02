@@ -10,6 +10,8 @@ local log           = ngx.log
 local format        = string.format
 local sub           = string.sub
 local match         = string.match
+local byte          = string.byte
+local find          = string.find
 
 local DEBUG         = ngx.DEBUG
 local ERR           = ngx.ERR
@@ -288,13 +290,13 @@ local function _iterate_cmd(self, cmd, args)
         -- Remove line + \n
         data_left = data_left - #line - 1
 
-        if string.byte(line, 1) ~= string.byte('_') then
+        if byte(line, 1) ~= byte('_') then
             return nil, nil
         end
 
-        local split = string.find(line, '\t')
+        local split = find(line, '\t')
 
-        return decode_fun(string.sub(line, 2, split-1)),  decode_fun(string.sub(line, split+1))
+        return decode_fun(sub(line, 2, split-1)),  decode_fun(sub(line, split+1))
     end
 end
 
